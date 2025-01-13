@@ -47,6 +47,21 @@ class DatabaseService {
                   password
                 }
               });
+
+              // Create remote database if it doesn't exist
+              try {
+                await this.remoteDb.info();
+              } catch (error: any) {
+                if (error.status === 404) {
+                  console.log('Creating remote database...');
+                  await new PouchDB(remoteDbUrl, {
+                    auth: { username, password },
+                    skip_setup: false
+                  });
+                } else {
+                  console.error('Error checking remote database:', error);
+                }
+              }
             }
 
             console.log('Connecting to local DB:', localDbName);
