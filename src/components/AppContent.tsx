@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import LoginForm from './auth/LoginForm';
+import { DrawingBoard } from './DrawingBoard';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -55,11 +56,16 @@ const AppContent = () => {
                 path="/"
                 element={
                   <ProtectedRoute>
-                    <div className="bg-white shadow rounded-lg p-6">
-                      <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
-                      <p className="mt-4 text-gray-600">
-                        You are logged in as a user of tenant: {user?.email?.split('@')[0]}
-                      </p>
+                    <div className="space-y-6">
+                      <div className="bg-white shadow rounded-lg p-6">
+                        <h1 className="text-2xl font-semibold text-gray-900">Collaborative Drawing Board</h1>
+                        <p className="mt-4 text-gray-600">
+                          Draw and collaborate in real-time. Changes are automatically saved and synced.
+                        </p>
+                      </div>
+                      <div className="bg-white shadow rounded-lg">
+                        <DrawingBoard />
+                      </div>
                     </div>
                   </ProtectedRoute>
                 }
