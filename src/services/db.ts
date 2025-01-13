@@ -1,150 +1,163 @@
 import PouchDB from 'pouchdb';
-import PouchDBFind from 'pouchdb-find';
-import { getTenantId, COUCH_DB_URL } from '../utils/constants';
-import { DatabaseAuth, SyncHandler } from '../types/database';
-import { auth as firebaseAuth } from '../config/firebase';
-import { 
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  GoogleAuthProvider,
-  signOut,
-  User as FirebaseUser,
-  User
-} from 'firebase/auth';
+import PouchFind from 'pouchdb-find';
+import { auth } from '../config/firebase';
 
-// Create PouchDB class with plugins
-const PouchWithPlugins = PouchDB.plugin(PouchDBFind);
+PouchDB.plugin(PouchFind);
 
-const tenantId = getTenantId();
-const DB_NAME = tenantId || 'default';
+class DatabaseService {
+  private db: PouchDB.Database;
+  private remoteDb: PouchDB.Database | null = null;
+  private syncHandler: PouchDB.Replication.Sync<{}> | null = null;
+  private tenantId: string | null = null;
+  private initPromise: Promise<void>;
+  private isInitialized: boolean = false;
 
-// Initialize databases
-export const localDB = new PouchWithPlugins(DB_NAME);
-export const remoteDB = new PouchWithPlugins(`${COUCH_DB_URL}${DB_NAME}`);
+  constructor() {
+    this.db = new PouchDB('collaborative-board');
+    this.initPromise = this.initializeDb();
+  }
 
-// Initialize Google Auth Provider
-const googleProvider = new GoogleAuthProvider();
+  private async initializeDb() {
+    return new Promise<void>((resolve) => {
+      auth.onAuthStateChanged(async (user) => {
+        if (user) {
+          const tenantId = user.email?.split('@')[0] || 'default';
+          if (tenantId !== this.tenantId) {
+            if (this.syncHandler) {
+              this.syncHandler.cancel();
+            }
+            if (this.db) {
+              await this.db.close();
+            }
+            
+            const localDbName = `${tenantId}-collaborative-board`;
+            const remoteUrl = import.meta.env.VITE_COUCHDB_URL;
+            const username = import.meta.env.VITE_COUCHDB_USER;
+            const password = import.meta.env.VITE_COUCHDB_PASSWORD;
+            
+            if (!remoteUrl || !username || !password) {
+              console.warn('CouchDB environment variables are not set (VITE_COUCHDB_URL, VITE_COUCHDB_USER, VITE_COUCHDB_PASSWORD). Remote sync will not work.');
+              this.remoteDb = null;
+            } else {
+              const remoteDbUrl = `${remoteUrl}/${tenantId}-collaborative-board`;
+              console.log('Connecting to remote DB:', remoteDbUrl);
+              this.remoteDb = new PouchDB(remoteDbUrl, {
+                auth: {
+                  username,
+                  password
+                }
+              });
+            }
 
-// Authentication methods using Firebase
-export const auth: DatabaseAuth = {
-  signup: async (email: string, password: string): Promise<User> => {
-    try {
-      const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
-      const { user } = userCredential;
-      return handleAuthSuccess(user);
-    } catch (error) {
-      console.error('Signup error:', error);
-      throw error;
-    }
-  },
+            console.log('Connecting to local DB:', localDbName);
+            this.db = new PouchDB(localDbName);
+            this.tenantId = tenantId;
 
-    login: async (email: string, password: string): Promise<User> => {
-    try {
-      const userCredential = await signInWithEmailAndPassword(firebaseAuth, email, password);
-      const { user } = userCredential;
-      return handleAuthSuccess(user);
-    } catch (error) {
-      console.error('Login error:', error);
-      throw error;
-    }
-  },
+            // Set up sync only if remote DB is available
+            if (this.remoteDb) {
+              this.syncHandler = this.db.sync(this.remoteDb, {
+                live: true,
+                retry: true
+              }).on('error', function (err) {
+                console.error('Sync error:', err);
+              }).on('change', function (change) {
+                console.log('Change:', change);
+              });
+            }
 
-  loginWithGoogle: async (): Promise<User> => {
-    try {
-      const result = await signInWithPopup(firebaseAuth, googleProvider);
-      const { user } = result;
-      return handleAuthSuccess(user);
-    } catch (error) {
-      console.error('Google login error:', error);
-      throw error;
-    }
-  },
+            try {
+              await this.db.createIndex({
+                index: {
+                  fields: ['type', 'boardId']
+                }
+              });
+            } catch (error) {
+              console.error('Error creating index:', error);
+            }
+          }
+          this.isInitialized = true;
+          resolve();
+        } else {
+          if (this.syncHandler) {
+            this.syncHandler.cancel();
+          }
+          if (this.db) {
+            await this.db.close();
+          }
+          this.db = new PouchDB('collaborative-board');
+          this.remoteDb = null;
+          this.syncHandler = null;
+          this.tenantId = null;
+          this.isInitialized = false;
+          resolve();
+        }
+      });
+    });
+  }
 
-  logout: async (): Promise<void> => {
-    try {
-      await signOut(firebaseAuth);
-      localStorage.removeItem('session');
-    } catch (error) {
-      console.error('Logout error:', error);
-      throw error;
-    }
-  },
-
-  getSession: async (): Promise<User> => {
-    try {
-      const user = firebaseAuth.currentUser;
-      if (!user) {
-        throw new Error('No user session found');
+  private async ensureInitialized() {
+    if (!this.isInitialized) {
+      await this.initPromise;
+      if (!this.isInitialized) {
+        throw new Error('Database not initialized: No user logged in');
       }
-      return user;
-    } catch (error) {
-      console.error('Get session error:', error);
-      throw error;
     }
   }
-};
 
-// Helper function to handle successful authentication
-const handleAuthSuccess = (user: FirebaseUser): User => {
-  const sessionData = {
-    userCtx: {
-      name: user.email,
-      roles: ['user']
+  // Proxy PouchDB methods with tenant awareness
+  async get(id: string) {
+    await this.ensureInitialized();
+    return this.db.get(id);
+  }
+
+  async put(doc: any) {
+    await this.ensureInitialized();
+    return this.db.put(doc);
+  }
+
+  async find(options: PouchDB.Find.FindRequest<any>) {
+    await this.ensureInitialized();
+    return this.db.find(options);
+  }
+
+  async allDocs(options?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions | PouchDB.Core.AllDocsOptions) {
+    await this.ensureInitialized();
+    return this.db.allDocs(options);
+  }
+
+  async remove(doc: PouchDB.Core.RemoveDocument) {
+    await this.ensureInitialized();
+    return this.db.remove(doc);
+  }
+
+  changes(options?: PouchDB.Core.ChangesOptions) {
+    // No need to await initialization for changes feed
+    return this.db.changes(options);
+  }
+
+  // Get current tenant ID
+  getTenantId() {
+    return this.tenantId;
+  }
+
+  // Check if database is initialized
+  isReady() {
+    return this.isInitialized;
+  }
+
+  // Wait for initialization
+  async waitForInitialization() {
+    await this.initPromise;
+    return this.isInitialized;
+  }
+
+  async close() {
+    if (this.syncHandler) {
+      this.syncHandler.cancel();
     }
-  };
-  localStorage.setItem('session', JSON.stringify(sessionData));
-  
-  return user;
-};
-
-// Replicate DB with authentication
-export const setupSync = (): SyncHandler => {
-  const sync = localDB
-    .sync(remoteDB, {
-      live: true,
-      retry: true,
-    }) as unknown as SyncHandler;
-
-  sync
-    .on('change', (info: PouchDB.Replication.SyncResult<{}>) => {
-      console.log('Change detected:', info);
-    })
-    .on('paused', (err: Error) => {
-      console.log('Replication paused:', err);
-    })
-    .on('active', () => {
-      console.log('Replication resumed');
-    })
-    .on('denied', (err: Error) => {
-      console.log('Replication denied:', err);
-    })
-    .on('complete', (info: PouchDB.Replication.SyncResultComplete<{}>) => {
-      console.log('Replication complete:', info);
-    })
-    .on('error', (err: Error) => {
-      console.error('Replication error:', err);
-    });
-
-  sync.catch((err) => {
-    console.error('Replication catch error:', err);
-    sync.cancel();
-  });
-
-  return sync;
-};
-
-// Ensure db is closed when app shuts down or window unloads
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    localDB.close();
-    remoteDB.close();
-  });
-} else if (typeof process !== 'undefined') {
-  process.on('SIGINT', () => {
-    localDB.close();
-    remoteDB.close();
-  });
+    return this.db.close();
+  }
 }
 
-export default localDB;
+const db = new DatabaseService();
+export default db;

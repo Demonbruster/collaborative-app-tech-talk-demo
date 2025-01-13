@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import LoginForm from './auth/LoginForm';
 import { DrawingBoard } from './DrawingBoard';
+import { BoardList } from './BoardList';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -31,7 +32,7 @@ const AppContent = () => {
         <nav className="w-full bg-white shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-16">
-              <div className="flex items-center">
+              <div className="flex items-center space-x-4">
                 <span className="text-lg font-semibold text-gray-900">
                   Welcome, {user.displayName}
                 </span>
@@ -56,17 +57,15 @@ const AppContent = () => {
                 path="/"
                 element={
                   <ProtectedRoute>
-                    <div className="space-y-6">
-                      <div className="bg-white shadow rounded-lg p-6">
-                        <h1 className="text-2xl font-semibold text-gray-900">Collaborative Drawing Board</h1>
-                        <p className="mt-4 text-gray-600">
-                          Draw and collaborate in real-time. Changes are automatically saved and synced.
-                        </p>
-                      </div>
-                      <div className="bg-white shadow rounded-lg">
-                        <DrawingBoard />
-                      </div>
-                    </div>
+                    <BoardList />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/board/:boardId"
+                element={
+                  <ProtectedRoute>
+                    <DrawingBoard />
                   </ProtectedRoute>
                 }
               />

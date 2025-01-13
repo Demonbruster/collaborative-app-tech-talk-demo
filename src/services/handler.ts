@@ -1,4 +1,4 @@
-import { localDB as db } from './db';
+import db from './db';
 import { getAuth } from 'firebase/auth';
 import { nanoid } from 'nanoid';
 import { DatabaseOperations, PouchDocument, PouchResponse } from '../types/database';
