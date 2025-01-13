@@ -7,6 +7,26 @@ export interface Board {
   createdAt: number;
   collaborators: string[];
   isPublic: boolean;
+  lastModified?: number;
+  lastModifiedBy?: string;
+  type: 'board';
+  accessType: 'owned' | 'shared' | 'public';
+}
+
+export interface BoardDoc extends Board {
+  _id: string;
+  _rev?: string;
+  tenantId: string;
+}
+
+export interface BoardState {
+  boards: {
+    owned: Board[];
+    shared: Board[];
+    public: Board[];
+  };
+  isLoading: boolean;
+  error: string | null;
 }
 
 export interface BoardCursor {
@@ -15,12 +35,4 @@ export interface BoardCursor {
   x: number;
   y: number;
   color: string;
-}
-
-export interface BoardState {
-  board: Board | null;
-  shapes: Shape[];
-  cursors: { [key: string]: BoardCursor };
-  isLoading: boolean;
-  error: string | null;
 } 
