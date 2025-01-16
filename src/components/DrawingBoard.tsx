@@ -15,7 +15,7 @@ PouchDB.plugin(PouchFind);
 interface BaseDoc {
   _id: string;
   _rev?: string;
-  type: 'board' | 'shape' | 'cursor';
+  type: 'board' | 'shape' | 'cursor' | 'users';
   boardId: string;
 }
 
@@ -26,6 +26,12 @@ interface BoardDoc extends BaseDoc {
   createdAt: Date;
   collaborators: string[];
   isPublic: boolean;
+}
+
+interface UsersDoc extends BaseDoc {
+  type: 'users';
+  users: string[];
+  updatedAt: Date;
 }
 
 interface ShapeDoc extends BaseDoc {
@@ -434,13 +440,28 @@ export const DrawingBoard = () => {
     if (!boardState.board || !email.trim()) return;
 
     try {
+      // Update board collaborators
       const doc = await db.get(`board:${boardId}`) as BoardDoc;
       const updatedBoard = {
         ...doc,
         collaborators: [...new Set([...doc.collaborators, email.trim()])]
       };
       await db.put(updatedBoard);
+
+      // Update users document in tenant database
+      // const remoteDb = await db.getRemoteDb(user!.email!);
+      const usersDoc = await db.get('users') as UsersDoc;
       
+      // Add the new user's email to the users list if not already present
+      if (!usersDoc.users.includes(email.trim())) {
+        const updatedUsersDoc = {
+          ...usersDoc,
+          users: [...usersDoc.users, email.trim()],
+          updatedAt: new Date().toISOString()
+        };
+        await db.put(updatedUsersDoc);
+      }
+
       setBoardState(prev => ({
         ...prev,
         board: {

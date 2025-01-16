@@ -37,7 +37,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         const tenantEmail = localStorage.getItem(`tenant_${user.uid}`);
         if (tenantEmail) {
           try {
-            const verified = await verifyTenant(tenantEmail);
+            const verified = await verifyTenant(tenantEmail, user.email!);
             if (!verified) {
               navigate('/verify-tenant');
             } else if (location.pathname === '/login' || location.pathname === '/verify-tenant') {
@@ -56,13 +56,66 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     return () => unsubscribe();
   }, []);
 
-  const verifyTenant = async (tenantEmail: string): Promise<boolean> => {
+  const createTenant = async (tenantEmail: string): Promise<boolean> => {
+    try {
+      if (!user) throw new Error('No user logged in');
+
+      // Check if tenant already exists
+      const remoteDb = await db.getRemoteDb(tenantEmail);
+      try {
+        const usersDoc = await remoteDb.get('users');
+        setTenantVerification({
+          tenantEmail,
+          isVerified: false,
+          error: 'Tenant already exists. Please use a different email or verify existing tenant.'
+        });
+        return false;
+      } catch (error: any) {
+        // If 404, tenant doesn't exist, we can create it
+        if (error.status !== 404) {
+          throw error;
+        }
+      }
+
+      // Create new tenant database
+      await db.syncWithRemote(tenantEmail);
+      
+      // Create users document with current user as the owner
+      await remoteDb.put({
+        _id: 'users',
+        users: [user.uid],
+        owner: user.uid,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      // Store tenant email for future reference
+      localStorage.setItem(`tenant_${user.uid}`, tenantEmail);
+      setTenantVerification({
+        tenantEmail,
+        isVerified: true
+      });
+
+      return true;
+    } catch (error) {
+      setTenantVerification({
+        tenantEmail,
+        isVerified: false,
+        error: (error as Error).message
+      });
+      return false;
+    }
+  };
+
+  const verifyTenant = async (tenantEmail: string, userEmail: string): Promise<boolean> => {
     try {
       if (!user) throw new Error('No user logged in');
 
       // Check if tenant exists in remote database
       const remoteDb = await db.getRemoteDb(tenantEmail);
       const usersDoc = await remoteDb.get('users').catch(() => null);
+
+      console.log(usersDoc);
       
       if (!usersDoc) {
         setTenantVerification({
@@ -74,7 +127,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
 
       const users = (usersDoc as any).users || [];
-      const userExists = users.includes(user.uid);
+      const userExists = users.includes(userEmail);
+
+      console.log({userExists, users, userEmail});
 
       if (!userExists) {
         setTenantVerification({
@@ -96,6 +151,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       await db.syncWithRemote(tenantEmail);
       return true;
     } catch (error) {
+      console.log("Error verifying tenant", error);
       setTenantVerification({
         tenantEmail,
         isVerified: false,
@@ -170,7 +226,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     register,
     loginWithGoogle,
     logout,
-    verifyTenant
+    verifyTenant,
+    createTenant
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

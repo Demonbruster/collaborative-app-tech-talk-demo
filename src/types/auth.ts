@@ -14,5 +14,6 @@ export interface AuthContextType {
   register: (username: string, password: string) => Promise<User>;
   loginWithGoogle: () => Promise<User>;
   logout: () => Promise<void>;
-  verifyTenant: (tenantEmail: string) => Promise<boolean>;
+  verifyTenant: (tenantEmail: string, userEmail: string) => Promise<boolean>;
+  createTenant: (tenantEmail: string) => Promise<boolean>;
 }
