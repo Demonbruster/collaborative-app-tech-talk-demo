@@ -455,6 +455,39 @@ export const DrawingBoard = () => {
     }
   };
 
+  const handleDeleteBoard = async () => {
+    if (!boardState.board || !user?.email || boardState.board.createdBy !== user.email) return;
+
+    try {
+      // Delete the board document
+      const boardDoc = await db.get(`board:${boardId}`) as BoardDoc & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta;
+      await db.remove({ _id: boardDoc._id, _rev: boardDoc._rev });
+
+      // Delete all shapes associated with the board
+      const shapesResult = await db.find({
+        selector: {
+          type: 'shape',
+          boardId,
+        }
+      });
+      
+      const deletePromises = shapesResult.docs.map(async (doc: any) => {
+        await db.remove({ _id: doc._id, _rev: doc._rev });
+      });
+      
+      await Promise.all(deletePromises);
+
+      // Navigate back to the board list
+      navigate('/');
+    } catch (error) {
+      console.error('Error deleting board:', error);
+      setBoardState(prev => ({
+        ...prev,
+        error: 'Failed to delete board'
+      }));
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="flex justify-between items-center">
@@ -470,6 +503,14 @@ export const DrawingBoard = () => {
           )}
         </div>
         <div className="flex items-center gap-4">
+          {boardState.board && user?.email === boardState.board.createdBy && (
+            <button
+              onClick={handleDeleteBoard}
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors font-medium"
+            >
+              Delete Board
+            </button>
+          )}
           <button
             onClick={() => setShowShareModal(true)}
             className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors font-medium"
