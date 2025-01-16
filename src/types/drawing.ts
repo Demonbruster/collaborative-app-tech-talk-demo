@@ -17,6 +17,7 @@ export interface Shape {
   height?: number;
   text?: string;
   fontSize?: number;
+  createdAt: Date;
 }
 
 export interface DrawingBoardState {

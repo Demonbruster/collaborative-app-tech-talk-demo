@@ -4,7 +4,7 @@ export interface Board {
   id: string;
   name: string;
   createdBy: string;
-  createdAt: number;
+  createdAt: Date;
   collaborators: string[];
   isPublic: boolean;
   lastModified?: number;

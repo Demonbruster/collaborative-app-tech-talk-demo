@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Stage, Layer, Line, Rect, Circle, Text, Group } from 'react-konva';
-import type Konva from 'konva';
 import { nanoid } from 'nanoid';
 import PouchDB from 'pouchdb';
 import PouchFind from 'pouchdb-find';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Shape, DrawingBoardState as DrawingToolState, DrawingTool } from '../types/drawing';
-import { Board, BoardCursor, DrawingBoardState } from '../types/board';
+import { BoardCursor, DrawingBoardState } from '../types/board';
 import { ShareModal } from './ShareModal';
 import db from '../services/db';
 
@@ -24,7 +23,7 @@ interface BoardDoc extends BaseDoc {
   type: 'board';
   name: string;
   createdBy: string;
-  createdAt: number;
+  createdAt: Date;
   collaborators: string[];
   isPublic: boolean;
 }
@@ -41,6 +40,7 @@ interface ShapeDoc extends BaseDoc {
   height?: number;
   text?: string;
   fontSize?: number;
+  createdAt: Date;
 }
 
 interface CursorDoc extends BaseDoc {
@@ -50,11 +50,8 @@ interface CursorDoc extends BaseDoc {
   x: number;
   y: number;
   color: string;
-  lastUpdated: number;
+  lastUpdated: Date;
 }
-
-const CURSOR_CLEANUP_INTERVAL = 10000;
-const CURSOR_TTL = 30000;
 
 const generateSafeId = (type: string) => {
   const id = nanoid();
@@ -81,7 +78,7 @@ export const DrawingBoard = () => {
     error: null,
   });
   const [drawingState, setDrawingState] = useState<DrawingToolState>({
-    shapes: [],
+    shapes: [] as Shape[],
     currentShape: null,
     tool: 'pen',
     color: '#000000',
@@ -126,21 +123,25 @@ export const DrawingBoard = () => {
             type: 'shape',
             boardId,
           },
+          sort: [{ '_id': 'asc' }],
         });
-        
-        const shapes = (result.docs as unknown as ShapeDoc[]).map(doc => ({
-          id: doc._id.split(':')[1],
-          tool: doc.tool,
-          color: doc.color,
-          strokeWidth: doc.strokeWidth,
-          points: doc.points,
-          x: doc.x,
-          y: doc.y,
-          width: doc.width,
-          height: doc.height,
-          text: doc.text,
-          fontSize: doc.fontSize,
-        }));
+        console.log("result", result);
+        const shapes = (result.docs as unknown as ShapeDoc[])
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+          .map(doc => ({
+            id: doc._id.split(':')[1],
+            tool: doc.tool,
+            color: doc.tool === 'eraser' ? '#ffffff' : doc.color,
+            strokeWidth: doc.strokeWidth,
+            points: doc.points,
+            x: doc.x,
+            y: doc.y,
+            width: doc.width,
+            height: doc.height,
+            text: doc.text,
+            fontSize: doc.fontSize,
+            createdAt: doc.createdAt,
+          }));
 
         setDrawingState(prev => ({ ...prev, shapes }));
       } catch (error) {
@@ -175,41 +176,56 @@ export const DrawingBoard = () => {
         switch (doc.type) {
           case 'shape':
             const shapeDoc = doc as ShapeDoc;
-            setDrawingState(prev => ({
-              ...prev,
-              shapes: [...prev.shapes.filter(s => s.id !== shapeDoc._id.split(':')[1]), {
-                id: shapeDoc._id.split(':')[1],
-                tool: shapeDoc.tool,
-                color: shapeDoc.color,
-                strokeWidth: shapeDoc.strokeWidth,
-                points: shapeDoc.points,
-                x: shapeDoc.x,
-                y: shapeDoc.y,
-                width: shapeDoc.width,
-                height: shapeDoc.height,
-                text: shapeDoc.text,
-                fontSize: shapeDoc.fontSize,
-              }],
-            }));
+            if (change.deleted) {
+              setDrawingState(prev => ({
+                ...prev,
+                shapes: prev.shapes.filter(s => s && s.id !== shapeDoc._id.split(':')[1])
+              }));
+            } else {
+              setDrawingState(prev => ({
+                ...prev,
+                shapes: [
+                  ...prev.shapes.filter(s => s && s.id !== shapeDoc._id.split(':')[1]),
+                  {
+                    id: shapeDoc._id.split(':')[1],
+                    tool: shapeDoc.tool,
+                    color: shapeDoc.tool === 'eraser' ? '#ffffff' : shapeDoc.color,
+                    strokeWidth: shapeDoc.strokeWidth,
+                    points: shapeDoc.points,
+                    x: shapeDoc.x,
+                    y: shapeDoc.y,
+                    width: shapeDoc.width,
+                    height: shapeDoc.height,
+                    text: shapeDoc.text,
+                    fontSize: shapeDoc.fontSize,
+                    createdAt: new Date(),
+                  }
+                ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+              }));
+            }
             break;
 
           case 'cursor':
             const cursorDoc = doc as CursorDoc;
             const userId = cursorDoc.userId;
             if (userId !== user?.uid) {
-              setBoardState(prev => ({
-                ...prev,
-                cursors: {
-                  ...prev.cursors,
-                  [userId]: {
-                    userId,
-                    displayName: cursorDoc.displayName,
-                    x: cursorDoc.x,
-                    y: cursorDoc.y,
-                    color: cursorDoc.color,
+              if (change.deleted) {
+                handleCursorCleanup(userId);
+              } else {
+                setBoardState(prev => ({
+                  ...prev,
+                  cursors: {
+                    ...prev.cursors,
+                    [userId]: {
+                      userId,
+                      displayName: cursorDoc.displayName,
+                      x: cursorDoc.x,
+                      y: cursorDoc.y,
+                      color: cursorDoc.color,
+                    },
                   },
-                },
-              }));
+                }));
+              }
             }
             break;
         }
@@ -224,39 +240,6 @@ export const DrawingBoard = () => {
       }
     };
   }, [boardId, user?.uid]);
-
-  // Update cursor handling
-  const updateCursor = async (x: number, y: number) => {
-    if (!user || !boardId) return;
-
-    const now = Date.now();
-    const cursorDoc: CursorDoc = {
-      _id: `cursor:${user.uid}`,
-      type: 'cursor',
-      boardId,
-      userId: user.uid,
-      displayName: user.displayName || 'Anonymous',
-      x,
-      y,
-      color: drawingState.color,
-      lastUpdated: now,
-    };
-
-    try {
-      const existing = await db.get(cursorDoc._id);
-      if (existing) {
-        cursorDoc._rev = existing._rev;
-      }
-    } catch (e) {
-      // Document doesn't exist yet
-    }
-
-    try {
-      await db.put(cursorDoc);
-    } catch (error) {
-      console.error('Error updating cursor:', error);
-    }
-  };
 
   // Update shape saving
   const handleMouseUp = async () => {
@@ -299,6 +282,7 @@ export const DrawingBoard = () => {
       points: [pos.x, pos.y],
       x: pos.x,
       y: pos.y,
+      createdAt: new Date(),
     };
     setDrawingState(prev => ({
       ...prev,
@@ -348,6 +332,7 @@ export const DrawingBoard = () => {
       y: textPosition.y,
       text: textInput,
       fontSize: drawingState.fontSize,
+      createdAt: drawingState.currentShape?.createdAt || new Date(),
     };
 
     const shapeDoc: ShapeDoc = {
@@ -362,6 +347,7 @@ export const DrawingBoard = () => {
       y: newShape.y,
       text: newShape.text,
       fontSize: newShape.fontSize,
+      createdAt: newShape.createdAt,
     };
 
     try {
@@ -386,10 +372,7 @@ export const DrawingBoard = () => {
       tension: 0.5,
       lineCap: 'round' as const,
       lineJoin: 'round' as const,
-      globalCompositeOperation: 
-        shape.tool === 'eraser' 
-          ? 'destination-out' as const
-          : 'source-over' as const,
+      globalCompositeOperation: shape.tool === 'eraser' ? 'destination-out' as const : 'source-over' as const,
     };
 
     switch (shape.tool) {

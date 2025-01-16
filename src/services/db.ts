@@ -18,7 +18,7 @@ class DatabaseService {
     this.db = new PouchDB('collaborative-board');
     this.initPromise = this.initializeDb();
     // Increase max listeners limit
-    EventEmitter.defaultMaxListeners = 20;
+    // EventEmitter.defaultMaxListeners = 20;
   }
 
   private async initializeDb() {
