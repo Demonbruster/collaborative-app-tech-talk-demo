@@ -5,7 +5,7 @@ import { EventEmitter } from 'events';
 
 PouchDB.plugin(PouchFind);
 
-class DatabaseService {
+export class DatabaseService {
   private db: PouchDB.Database;
   private remoteDb: PouchDB.Database | null = null;
   private syncHandler: PouchDB.Replication.Sync<{}> | null = null;
@@ -17,8 +17,52 @@ class DatabaseService {
   constructor() {
     this.db = new PouchDB('collaborative-board');
     this.initPromise = this.initializeDb();
-    // Increase max listeners limit
-    // EventEmitter.defaultMaxListeners = 20;
+  }
+
+  async getRemoteDb(tenantEmail: string): Promise<PouchDB.Database> {
+    const remoteUrl = import.meta.env.VITE_COUCHDB_URL;
+    const username = import.meta.env.VITE_COUCHDB_USER;
+    const password = import.meta.env.VITE_COUCHDB_PASSWORD;
+
+    if (!remoteUrl || !username || !password) {
+      throw new Error('CouchDB environment variables are not set');
+    }
+
+    const tenantId = tenantEmail.split('@')[0];
+    const remoteDbUrl = `${remoteUrl}/${tenantId}-collaborative-board`;
+    return new PouchDB(remoteDbUrl, {
+      auth: {
+        username,
+        password
+      }
+    });
+  }
+
+  async syncWithRemote(tenantEmail: string): Promise<void> {
+    if (this.syncHandler) {
+      this.syncHandler.cancel();
+    }
+
+    const remoteDb = await this.getRemoteDb(tenantEmail);
+    const tenantId = tenantEmail.split('@')[0];
+    
+    // Close and destroy existing local db
+    if (this.db) {
+      await this.db.close();
+    }
+
+    // Create new local db with tenant prefix
+    const localDbName = `${tenantId}-collaborative-board`;
+    this.db = new PouchDB(localDbName);
+
+    // Start sync
+    this.syncHandler = this.db.sync(remoteDb, {
+      live: true,
+      retry: true
+    });
+
+    this.tenantId = tenantId;
+    this.remoteDb = remoteDb;
   }
 
   private async initializeDb() {
