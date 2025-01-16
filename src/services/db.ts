@@ -33,6 +33,10 @@ class DatabaseService {
             if (this.db) {
               await this.db.close();
             }
+
+            // delete entire database locally and remotely
+            // await this.db.destroy();
+            // await this.remoteDb?.destroy();
             
             const localDbName = `${tenantId}-collaborative-board`;
             const remoteUrl = import.meta.env.VITE_COUCHDB_URL;
