@@ -6,8 +6,8 @@ import PouchDB from 'pouchdb';
 import PouchFind from 'pouchdb-find';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Shape, DrawingBoardState, DrawingTool } from '../types/drawing';
-import { Board, BoardCursor, BoardState } from '../types/board';
+import { Shape, DrawingBoardState as DrawingToolState, DrawingTool } from '../types/drawing';
+import { Board, BoardCursor, DrawingBoardState } from '../types/board';
 import { ShareModal } from './ShareModal';
 import db from '../services/db';
 
@@ -73,14 +73,14 @@ const TOOLS = [
 export const DrawingBoard = () => {
   const { boardId } = useParams<{ boardId: string }>();
   const { user } = useAuth();
-  const [boardState, setBoardState] = useState<BoardState>({
+  const [boardState, setBoardState] = useState<DrawingBoardState>({
     board: null,
     shapes: [],
     cursors: {},
     isLoading: true,
     error: null,
   });
-  const [drawingState, setDrawingState] = useState<DrawingBoardState>({
+  const [drawingState, setDrawingState] = useState<DrawingToolState>({
     shapes: [],
     currentShape: null,
     tool: 'pen',
@@ -115,6 +115,8 @@ export const DrawingBoard = () => {
             createdAt: boardDoc.createdAt,
             collaborators: boardDoc.collaborators,
             isPublic: boardDoc.isPublic,
+            type: 'board',
+            accessType: 'owned',
           },
         }));
 
@@ -156,63 +158,70 @@ export const DrawingBoard = () => {
   useEffect(() => {
     if (!boardId) return;
 
-    const changes = db.changes({
-      since: 'now',
-      live: true,
-      include_docs: true,
-      filter: (doc: any) => doc.boardId === boardId,
-    });
+    let changesFeed: PouchDB.Core.Changes<{}> | null = null;
 
-    changes.on('change', (change) => {
-      const doc = change.doc as BaseDoc;
-      
-      switch (doc.type) {
-        case 'shape':
-          const shapeDoc = doc as ShapeDoc;
-          const shape = {
-            id: shapeDoc._id.split(':')[1],
-            tool: shapeDoc.tool,
-            color: shapeDoc.color,
-            strokeWidth: shapeDoc.strokeWidth,
-            points: shapeDoc.points,
-            x: shapeDoc.x,
-            y: shapeDoc.y,
-            width: shapeDoc.width,
-            height: shapeDoc.height,
-            text: shapeDoc.text,
-            fontSize: shapeDoc.fontSize,
-          };
+    const setupChangesFeed = async () => {
+      await db.waitForInitialization();
+      changesFeed = db.changes({
+        since: 'now',
+        live: true,
+        include_docs: true,
+        filter: (doc: any) => doc.boardId === boardId,
+      });
 
-          setDrawingState(prev => ({
-            ...prev,
-            shapes: [...prev.shapes.filter(s => s.id !== shape.id), shape],
-          }));
-          break;
-
-        case 'cursor':
-          const cursorDoc = doc as CursorDoc;
-          const userId = cursorDoc.userId;
-          if (userId !== user?.uid) {
-            setBoardState(prev => ({
+      changesFeed.on('change', (change) => {
+        const doc = change.doc as BaseDoc;
+        
+        switch (doc.type) {
+          case 'shape':
+            const shapeDoc = doc as ShapeDoc;
+            setDrawingState(prev => ({
               ...prev,
-              cursors: {
-                ...prev.cursors,
-                [userId]: {
-                  userId,
-                  displayName: cursorDoc.displayName,
-                  x: cursorDoc.x,
-                  y: cursorDoc.y,
-                  color: cursorDoc.color,
-                },
-              },
+              shapes: [...prev.shapes.filter(s => s.id !== shapeDoc._id.split(':')[1]), {
+                id: shapeDoc._id.split(':')[1],
+                tool: shapeDoc.tool,
+                color: shapeDoc.color,
+                strokeWidth: shapeDoc.strokeWidth,
+                points: shapeDoc.points,
+                x: shapeDoc.x,
+                y: shapeDoc.y,
+                width: shapeDoc.width,
+                height: shapeDoc.height,
+                text: shapeDoc.text,
+                fontSize: shapeDoc.fontSize,
+              }],
             }));
-          }
-          break;
-      }
-    });
+            break;
+
+          case 'cursor':
+            const cursorDoc = doc as CursorDoc;
+            const userId = cursorDoc.userId;
+            if (userId !== user?.uid) {
+              setBoardState(prev => ({
+                ...prev,
+                cursors: {
+                  ...prev.cursors,
+                  [userId]: {
+                    userId,
+                    displayName: cursorDoc.displayName,
+                    x: cursorDoc.x,
+                    y: cursorDoc.y,
+                    color: cursorDoc.color,
+                  },
+                },
+              }));
+            }
+            break;
+        }
+      });
+    };
+
+    setupChangesFeed();
 
     return () => {
-      changes.cancel();
+      if (changesFeed) {
+        changesFeed.cancel();
+      }
     };
   }, [boardId, user?.uid]);
 
@@ -331,7 +340,7 @@ export const DrawingBoard = () => {
 
     const newShape: Shape = {
       id: generateSafeId('shape'),
-      tool: 'text',
+      tool: 'text' as DrawingTool,
       color: drawingState.color,
       strokeWidth: 1,
       points: [],
@@ -341,13 +350,22 @@ export const DrawingBoard = () => {
       fontSize: drawingState.fontSize,
     };
 
-    try {
-      await db.put({
-        _id: newShape.id,
-        boardId,
-        ...newShape,
-      });
+    const shapeDoc: ShapeDoc = {
+      _id: newShape.id,
+      type: 'shape',
+      boardId,
+      tool: newShape.tool,
+      color: newShape.color,
+      strokeWidth: newShape.strokeWidth,
+      points: newShape.points,
+      x: newShape.x,
+      y: newShape.y,
+      text: newShape.text,
+      fontSize: newShape.fontSize,
+    };
 
+    try {
+      await db.put(shapeDoc);
       setDrawingState(prev => ({
         ...prev,
         shapes: [...prev.shapes, newShape],
@@ -360,6 +378,8 @@ export const DrawingBoard = () => {
   };
 
   const renderShape = (shape: Shape) => {
+    if (!shape || !shape.tool) return null;
+
     const commonProps = {
       stroke: shape.tool === 'eraser' ? '#ffffff' : shape.color,
       strokeWidth: shape.strokeWidth,
@@ -419,8 +439,11 @@ export const DrawingBoard = () => {
 
   const handleCursorCleanup = (userId: string) => {
     setBoardState(prev => {
-      const { [userId]: _, ...newCursors } = prev.cursors;
-      return { ...prev, cursors: newCursors };
+      const { [userId]: removedCursor, ...newCursors } = prev.cursors;
+      return {
+        ...prev,
+        cursors: newCursors as Record<string, BoardCursor>,
+      };
     });
   };
 
@@ -573,7 +596,7 @@ export const DrawingBoard = () => {
           className="bg-gray-900"
         >
           <Layer>
-            {drawingState.shapes.map(renderShape)}
+            {drawingState.shapes.map(shape => renderShape(shape))}
             {drawingState.currentShape && renderShape(drawingState.currentShape)}
             {Object.values(boardState.cursors).map(cursor => (
               <Group key={cursor.userId}>

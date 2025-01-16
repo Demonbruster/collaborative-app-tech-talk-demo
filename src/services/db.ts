@@ -1,6 +1,7 @@
 import PouchDB from 'pouchdb';
 import PouchFind from 'pouchdb-find';
 import { auth } from '../config/firebase';
+import { EventEmitter } from 'events';
 
 PouchDB.plugin(PouchFind);
 
@@ -11,10 +12,13 @@ class DatabaseService {
   private tenantId: string | null = null;
   private initPromise: Promise<void>;
   private isInitialized: boolean = false;
+  private activeChangesFeeds: Set<PouchDB.Core.Changes<{}>> = new Set();
 
   constructor() {
     this.db = new PouchDB('collaborative-board');
     this.initPromise = this.initializeDb();
+    // Increase max listeners limit
+    EventEmitter.defaultMaxListeners = 20;
   }
 
   private async initializeDb() {
@@ -146,8 +150,19 @@ class DatabaseService {
   }
 
   changes(options?: PouchDB.Core.ChangesOptions) {
-    // No need to await initialization for changes feed
-    return this.db.changes(options);
+    const feed = this.db.changes(options);
+    this.activeChangesFeeds.add(feed);
+    
+    // Automatically remove from set when feed ends
+    feed.on('complete', () => {
+      this.activeChangesFeeds.delete(feed);
+    });
+
+    feed.on('error', () => {
+      this.activeChangesFeeds.delete(feed);
+    });
+    
+    return feed;
   }
 
   // Get current tenant ID
@@ -167,6 +182,12 @@ class DatabaseService {
   }
 
   async close() {
+    // Cancel all active changes feeds
+    for (const feed of this.activeChangesFeeds) {
+      feed.cancel();
+    }
+    this.activeChangesFeeds.clear();
+
     if (this.syncHandler) {
       this.syncHandler.cancel();
     }

@@ -35,4 +35,12 @@ export interface BoardCursor {
   x: number;
   y: number;
   color: string;
+}
+
+export interface DrawingBoardState {
+  board: Board | null;
+  shapes: Shape[];
+  cursors: Record<string, BoardCursor>;
+  isLoading: boolean;
+  error: string | null;
 } 
