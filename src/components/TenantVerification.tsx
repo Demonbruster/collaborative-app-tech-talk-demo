@@ -49,8 +49,15 @@ const TenantVerification: React.FC = () => {
     setLoading(true);
     
     try {
-      await loginWithGoogle();
-      navigate('/');
+      const user = await loginWithGoogle();
+      if (!user) {
+        throw new Error('Failed to sign in with Google');
+      }
+
+      const created = await createTenant(user.email!);
+      if (created) {
+        navigate('/');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create tenant');
     } finally {

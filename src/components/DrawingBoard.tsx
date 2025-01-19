@@ -9,6 +9,9 @@ import { Shape, DrawingBoardState as DrawingToolState, DrawingTool } from '../ty
 import { BoardCursor, DrawingBoardState } from '../types/board';
 import { ShareModal } from './ShareModal';
 import db from '../services/db';
+import { RemoteDbService } from '../services/remoteDb';
+
+const remoteDb = new RemoteDbService();
 
 PouchDB.plugin(PouchFind);
 
@@ -75,7 +78,7 @@ const TOOLS = [
 
 export const DrawingBoard = () => {
   const { boardId } = useParams<{ boardId: string }>();
-  const { user } = useAuth();
+  const { user, tenantVerification } = useAuth();
   const [boardState, setBoardState] = useState<DrawingBoardState>({
     board: null,
     shapes: [],
@@ -438,8 +441,10 @@ export const DrawingBoard = () => {
 
   const handleShare = async (email: string) => {
     if (!boardState.board || !email.trim()) return;
+    console.log('email', email);
 
     try {
+      console.log('boardState.board', boardState.board);
       // Update board collaborators
       const doc = await db.get(`board:${boardId}`) as BoardDoc;
       const updatedBoard = {
@@ -448,19 +453,33 @@ export const DrawingBoard = () => {
       };
       await db.put(updatedBoard);
 
+      console.log('updatedBoard', updatedBoard);
+
       // Update users document in tenant database
       // const remoteDb = await db.getRemoteDb(user!.email!);
-      const usersDoc = await db.get('users') as UsersDoc;
-      
-      // Add the new user's email to the users list if not already present
-      if (!usersDoc.users.includes(email.trim())) {
-        const updatedUsersDoc = {
-          ...usersDoc,
-          users: [...usersDoc.users, email.trim()],
-          updatedAt: new Date().toISOString()
-        };
-        await db.put(updatedUsersDoc);
+      // const usersDoc = await db.get('users') as UsersDoc;
+      // console.log('usersDoc', usersDoc);
+
+      try {
+        // share with remote db
+        await remoteDb.addUserToTenant(tenantVerification!.tenantEmail, email.trim());
+      } catch (error) {
+        console.error('Error sharing board:', error);
       }
+      
+      // try {
+      //   // Add the new user's email to the users list if not already present
+      // if (!usersDoc.users.includes(email.trim())) {
+      //   const updatedUsersDoc = {
+      //     ...usersDoc,
+      //     users: [...usersDoc.users, email.trim()],
+      //     updatedAt: new Date().toISOString()
+      //   };
+      //     await db.put(updatedUsersDoc);
+      //   }
+      // } catch (error) {
+      //   console.error('Error sharing board:', error);
+      // }
 
       setBoardState(prev => ({
         ...prev,

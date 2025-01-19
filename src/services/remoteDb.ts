@@ -37,15 +37,65 @@ export class RemoteDbService {
   async verifyTenantAccess(tenantEmail: string, userEmail: string): Promise<boolean> {
     try {
       const remoteDb = this.getRemoteDb(REMOTE_DB_NAME);
-      const usersDoc = await remoteDb.get(tenantEmail) as UsersDoc;
-      console.log('usersDoc', usersDoc);
       
-      return usersDoc.users.includes(userEmail);
+      try {
+        const usersDoc = await remoteDb.get(tenantEmail) as UsersDoc;
+        console.log('[RemoteDbService] Found users document:', { tenantEmail, userCount: usersDoc.users.length });
+        return usersDoc.users.includes(userEmail);
+      } catch (error: any) {
+        if (error.status === 404) {
+          console.log('[RemoteDbService] Users document not found, creating new tenant:', { tenantEmail });
+          await this.createTenant(tenantEmail);
+          return userEmail === tenantEmail;
+        }
+        console.error('[RemoteDbService] Error getting users document:', {
+          tenantEmail,
+          error: error.message,
+          status: error.status
+        });
+        throw error;
+      }
+    } catch (error: any) {
+      console.error('[RemoteDbService] Failed to verify tenant access:', {
+        tenantEmail,
+        userEmail,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  private async ensureRemoteDbExists(tenantEmail: string): Promise<void> {
+    const remoteDb = this.getRemoteDb(REMOTE_DB_NAME);
+    try {
+      await remoteDb.info();
+      console.log('[RemoteDbService] Remote database exists:', { tenantEmail });
     } catch (error: any) {
       if (error.status === 404) {
-        return false; // Tenant database or users document doesn't exist
+        console.log('[RemoteDbService] Creating new remote database:', { tenantEmail });
+        await remoteDb.put({
+          _id: '_design/users',
+          views: {
+            by_email: {
+              map: function(doc: any) {
+                /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
+                const emit = function(key: any, value: any) {};
+                if (doc.users) {
+                  emit(doc._id, doc.users);
+                }
+              }.toString()
+            }
+          }
+        });
+      } else {
+        console.error('[RemoteDbService] Failed to check database existence:', {
+          tenantEmail,
+          error: error.message,
+          status: error.status
+        });
+        throw error;
       }
-      throw error;
     }
   }
 
@@ -53,17 +103,25 @@ export class RemoteDbService {
     try {
       const remoteDb = this.getRemoteDb(REMOTE_DB_NAME);
       
-      // Check if tenant already exists
+      console.log('[RemoteDbService] Ensuring remote database exists:', { tenantEmail });
+      await this.ensureRemoteDbExists(tenantEmail);
+      
       try {
-        await remoteDb.get('users');
-        return false; // Tenant already exists
+        await remoteDb.get(tenantEmail);
+        console.log('[RemoteDbService] Tenant already exists:', { tenantEmail });
+        return false;
       } catch (error: any) {
         if (error.status !== 404) {
+          console.error('[RemoteDbService] Unexpected error checking tenant existence:', {
+            tenantEmail,
+            error: error.message,
+            status: error.status
+          });
           throw error;
         }
       }
 
-      // Create users document with owner
+      console.log('[RemoteDbService] Creating new tenant:', { tenantEmail });
       await remoteDb.put({
         _id: tenantEmail,
         users: [tenantEmail],
@@ -73,26 +131,42 @@ export class RemoteDbService {
       });
 
       return true;
-    } catch (error) {
-      console.error('Error creating tenant:', error);
+    } catch (error: any) {
+      console.error('[RemoteDbService] Failed to create tenant:', {
+        tenantEmail,
+        error: error.message,
+        stack: error.stack
+      });
       throw error;
     }
   }
 
   async addUserToTenant(tenantEmail: string, userEmail: string): Promise<boolean> {
     try {
+      console.log('[RemoteDbService] Adding user to tenant:', { tenantEmail, userEmail });
       const remoteDb = this.getRemoteDb(REMOTE_DB_NAME);
+
+      await this.ensureRemoteDbExists(tenantEmail);
+
       const usersDoc = await remoteDb.get(tenantEmail) as UsersDoc & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta;
       
       if (!usersDoc.users.includes(userEmail)) {
+        console.log('[RemoteDbService] Adding new user to tenant:', { tenantEmail, userEmail });
         usersDoc.users.push(userEmail);
         usersDoc.updatedAt = new Date().toISOString();
         await remoteDb.put(usersDoc);
+      } else {
+        console.log('[RemoteDbService] User already exists in tenant:', { tenantEmail, userEmail });
       }
       
       return true;
-    } catch (error) {
-      console.error('Error adding user to tenant:', error);
+    } catch (error: any) {
+      console.error('[RemoteDbService] Failed to add user to tenant:', {
+        tenantEmail,
+        userEmail,
+        error: error.message,
+        stack: error.stack
+      });
       throw error;
     }
   }
