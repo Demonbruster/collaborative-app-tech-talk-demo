@@ -455,31 +455,12 @@ export const DrawingBoard = () => {
 
       console.log('updatedBoard', updatedBoard);
 
-      // Update users document in tenant database
-      // const remoteDb = await db.getRemoteDb(user!.email!);
-      // const usersDoc = await db.get('users') as UsersDoc;
-      // console.log('usersDoc', usersDoc);
-
       try {
         // share with remote db
         await remoteDb.addUserToTenant(tenantVerification!.tenantEmail, email.trim());
       } catch (error) {
         console.error('Error sharing board:', error);
       }
-      
-      // try {
-      //   // Add the new user's email to the users list if not already present
-      // if (!usersDoc.users.includes(email.trim())) {
-      //   const updatedUsersDoc = {
-      //     ...usersDoc,
-      //     users: [...usersDoc.users, email.trim()],
-      //     updatedAt: new Date().toISOString()
-      //   };
-      //     await db.put(updatedUsersDoc);
-      //   }
-      // } catch (error) {
-      //   console.error('Error sharing board:', error);
-      // }
 
       setBoardState(prev => ({
         ...prev,

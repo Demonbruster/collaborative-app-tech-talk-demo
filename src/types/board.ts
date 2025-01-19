@@ -10,7 +10,7 @@ export interface Board {
   lastModified?: number;
   lastModifiedBy?: string;
   type: 'board';
-  accessType: 'owned' | 'shared' | 'public';
+  accessType: 'owned' | 'shared' | 'public' | 'private';
 }
 
 export interface BoardDoc extends Board {
@@ -24,6 +24,7 @@ export interface BoardState {
     owned: Board[];
     shared: Board[];
     public: Board[];
+    private: Board[];
   };
   isLoading: boolean;
   error: string | null;

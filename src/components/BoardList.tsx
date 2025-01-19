@@ -12,7 +12,8 @@ export const BoardList = () => {
     boards: {
       owned: [],
       shared: [],
-      public: []
+      public: [],
+      private: []
     },
     isLoading: true,
     error: null
@@ -68,18 +69,20 @@ export const BoardList = () => {
             lastModified: doc.lastModified,
             lastModifiedBy: doc.lastModifiedBy,
             type: 'board',
-            accessType: doc.createdBy === user?.email ? 'owned' : 
-                       doc.collaborators.includes(user?.email) ? 'shared' : 'public'
+            accessType: doc.createdBy === user?.email ? 
+              (doc.isPublic ? 'public' : doc.collaborators.length > 0 ? 'shared' : 'private') :
+              doc.collaborators.includes(user?.email) ? 'shared' : 'public'
           };
 
           console.log('board', board);
           acc[board.accessType].push(board);
           return acc;
-        }, { owned: [], shared: [], public: [] });
+        }, { owned: [], shared: [], public: [], private: [] });
 
         setState(prev => ({
           ...prev,
           boards,
+          error: null,
           isLoading: false
         }));
 
@@ -110,8 +113,9 @@ export const BoardList = () => {
       lastModified: doc.lastModified,
       lastModifiedBy: doc.lastModifiedBy,
       type: 'board',
-      accessType: doc.createdBy === user?.email ? 'owned' : 
-                 doc.collaborators.includes(user?.email) ? 'shared' : 'public'
+      accessType: doc.createdBy === user?.email ? 
+        (doc.isPublic ? 'public' : doc.collaborators.length > 0 ? 'shared' : 'private') :
+        doc.collaborators.includes(user?.email) ? 'shared' : 'public'
     };
 
     setState(prev => {
@@ -229,6 +233,7 @@ export const BoardList = () => {
           {renderBoardSection('My Boards', state.boards.owned)}
           {renderBoardSection('Shared With Me', state.boards.shared)}
           {renderBoardSection('Public Boards', state.boards.public)}
+          {renderBoardSection('Private Boards', state.boards.private)}
         </>
       )}
     </div>
