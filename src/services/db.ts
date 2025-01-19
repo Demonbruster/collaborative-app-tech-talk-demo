@@ -1,7 +1,6 @@
 import PouchDB from 'pouchdb';
 import PouchFind from 'pouchdb-find';
-import { auth } from '../config/firebase';
-import { EventEmitter } from 'events';
+
 
 PouchDB.plugin(PouchFind);
 
