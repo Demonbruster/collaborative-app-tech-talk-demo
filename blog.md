@@ -250,7 +250,3 @@ The source code is available on GitHub [link], and we welcome contributions from
 - [Live Demo](#)
 - [Documentation](#)
 - [Technical Talk Slides](#)
-
----
-
-*This blog post is part of our technical series on building modern collaborative applications. Follow us for more insights into web development, real-time collaboration, and software architecture.* 

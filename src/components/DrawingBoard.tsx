@@ -134,7 +134,7 @@ export const DrawingBoard = () => {
           },
           sort: [{ '_id': 'asc' }],
         });
-        console.log("result", result);
+
         const shapes = (result.docs as unknown as ShapeDoc[])
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
           .map(doc => ({
@@ -441,10 +441,8 @@ export const DrawingBoard = () => {
 
   const handleShare = async (email: string) => {
     if (!boardState.board || !email.trim()) return;
-    console.log('email', email);
 
     try {
-      console.log('boardState.board', boardState.board);
       // Update board collaborators
       const doc = await db.get(`board:${boardId}`) as BoardDoc;
       const updatedBoard = {
@@ -452,8 +450,6 @@ export const DrawingBoard = () => {
         collaborators: [...new Set([...doc.collaborators, email.trim()])]
       };
       await db.put(updatedBoard);
-
-      console.log('updatedBoard', updatedBoard);
 
       try {
         // share with remote db
