@@ -2,7 +2,7 @@ import React, { createContext, useState, useEffect, useContext, ReactNode } from
 import { auth } from '../config/firebase';
 import { AuthContextType, TenantVerification } from '../types/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
+import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, User, signInWithEmailAndPassword } from 'firebase/auth';
 import { DatabaseService } from '../services/db';
 import { RemoteDbService } from '../services/remoteDb';
 
@@ -62,7 +62,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       if (!user) throw new Error('No user logged in');
 
-      db = new DatabaseService(tenantEmail);
+      db = DatabaseService.getInstance();
       
       // Create users document with current user as the owner
       await remoteDb.createTenant(tenantEmail);
@@ -74,6 +74,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         isVerified: true
       });
 
+      await db.initialize(tenantEmail);
       return true;
     } catch (error) {
       console.error('Error creating tenant:', error);
@@ -108,7 +109,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         isVerified: true
       });
 
-      db = new DatabaseService(tenantEmail);
+      db = DatabaseService.getInstance();
+      await db.initialize(tenantEmail);
       return true;
     } catch (error) {
       console.log("Error verifying tenant", error);
@@ -123,37 +125,23 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const loginWithGoogle = async (): Promise<User> => {
     try {
-      const response = await signInWithPopup(auth, new GoogleAuthProvider());
-      if (!response.user) {
-        throw new Error('Invalid response from server');
-      }
-
-      // initialize db asynchronously
-      db = new DatabaseService(response.user.email!);
-
-      await db.waitForInitialization().then(() => {
-        console.log('db initialized');
-        // if the user's path is /login, redirect to /
-        if (location.pathname === '/login') {
-          navigate('/');
-        }
-      });
-      
-      return response.user;
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const db = DatabaseService.getInstance();
+      await db.initialize(result.user.email!);
+      return result.user;
     } catch (error) {
       console.error('Google login failed:', error);
       throw error;
     }
   };
 
-  const login = async (username: string, password: string): Promise<User> => {
+  const login = async (email: string, password: string) => {
     try {
-      const response = await signInWithPopup(auth, new GoogleAuthProvider());
-      if (!response.user) {
-        throw new Error('Invalid response from server');
-      }
-      setUser(response.user);
-      return response.user;
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const db = DatabaseService.getInstance();
+      await db.initialize(email); // Initialize DB with user's email
+      return userCredential.user;
     } catch (error) {
       console.error('Login failed:', error);
       throw error;

@@ -12,12 +12,43 @@ export class DatabaseService {
   private initPromise: Promise<void>;
   private isInitialized: boolean = false;
   private activeChangesFeeds: Set<PouchDB.Core.Changes<{}>> = new Set();
+  private static instance: DatabaseService | null = null;
 
-  constructor(tenantEmail: string) {
-    const dbName = `${tenantEmail.split('@')[0]}-collaborative-board`;
-    console.log('[DatabaseService] Initializing database:', { dbName, tenantEmail });
-    this.db = new PouchDB(dbName);
-    this.initPromise = this.initializeDb(tenantEmail);
+  private constructor() {
+    this.db = new PouchDB('temp-db');
+    this.initPromise = Promise.resolve();
+  }
+
+  static getInstance(): DatabaseService {
+    if (!DatabaseService.instance) {
+      DatabaseService.instance = new DatabaseService();
+    }
+    return DatabaseService.instance;
+  }
+
+  async initialize(tenantEmail: string) {
+    try {
+      if (this.syncHandler) {
+        this.syncHandler.cancel();
+      }
+
+      if (this.db) {
+        await this.db.close();
+      }
+
+      const dbName = `${tenantEmail.split('@')[0]}-collaborative-board`;
+      console.log('[DatabaseService] Initializing database:', { dbName, tenantEmail });
+      this.db = new PouchDB(dbName);
+      
+      // Start sync with remote immediately
+      await this.syncWithRemote(tenantEmail);
+      
+      this.isInitialized = true;
+      console.log('[DatabaseService] Database initialized successfully');
+    } catch (error) {
+      console.error('[DatabaseService] Initialization failed:', error);
+      throw error;
+    }
   }
 
   async getRemoteDb(tenantEmail: string): Promise<PouchDB.Database> {
@@ -94,17 +125,6 @@ export class DatabaseService {
       });
       throw error;
     }
-  }
-
-  private async initializeDb(tenantEmail: string) {
-    return new Promise<void>((resolve) => {
-      const dbName = `${tenantEmail.split('@')[0]}-collaborative-board`;
-      console.log('[DatabaseService] Initializing local database:', { dbName });
-      this.db = new PouchDB(dbName);
-      this.isInitialized = true;
-      console.log('[DatabaseService] Database initialized successfully');
-      resolve();
-    });
   }
 
   private async ensureInitialized() {
@@ -243,5 +263,6 @@ export class DatabaseService {
   }
 }
 
-const db = new DatabaseService('test@test.com');
+// Export a singleton instance
+const db = DatabaseService.getInstance();
 export default db;

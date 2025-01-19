@@ -7,7 +7,7 @@ import { nanoid } from 'nanoid';
 
 export const BoardList = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, tenantVerification } = useAuth();
   const [state, setState] = useState<BoardState>({
     boards: {
       owned: [],
@@ -22,6 +22,10 @@ export const BoardList = () => {
   useEffect(() => {
     const loadBoards = async () => {
       try {
+        if (!user?.email) return;
+        
+        // Ensure database is initialized with current user's email
+        await db.initialize(tenantVerification?.tenantEmail || '');
         await db.waitForInitialization();
         
         // Set up real-time sync for boards
@@ -90,7 +94,9 @@ export const BoardList = () => {
       }
     };
 
-    loadBoards();
+    if (user?.email) {
+      loadBoards();
+    }
   }, [user?.email]);
 
   const updateBoardsList = (doc: any) => {
