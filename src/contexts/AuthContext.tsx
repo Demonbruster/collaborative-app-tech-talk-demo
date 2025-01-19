@@ -4,9 +4,11 @@ import { AuthContextType, TenantVerification } from '../types/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
 import { DatabaseService } from '../services/db';
+import { RemoteDbService } from '../services/remoteDb';
 
 const AuthContext = createContext<AuthContextType | null>(null);
-const db = new DatabaseService();
+let db: DatabaseService | null = null;
+const remoteDb = new RemoteDbService();
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -60,34 +62,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       if (!user) throw new Error('No user logged in');
 
-      // Check if tenant already exists
-      const remoteDb = await db.getRemoteDb(tenantEmail);
-      try {
-        const usersDoc = await remoteDb.get('users');
-        setTenantVerification({
-          tenantEmail,
-          isVerified: false,
-          error: 'Tenant already exists. Please use a different email or verify existing tenant.'
-        });
-        return false;
-      } catch (error: any) {
-        // If 404, tenant doesn't exist, we can create it
-        if (error.status !== 404) {
-          throw error;
-        }
-      }
-
-      // Create new tenant database
-      await db.syncWithRemote(tenantEmail);
+      db = new DatabaseService(tenantEmail);
       
       // Create users document with current user as the owner
-      await remoteDb.put({
-        _id: 'users',
-        users: [user.uid],
-        owner: user.uid,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
+      await remoteDb.createTenant(tenantEmail);
 
       // Store tenant email for future reference
       localStorage.setItem(`tenant_${user.uid}`, tenantEmail);
@@ -98,6 +76,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
       return true;
     } catch (error) {
+      console.error('Error creating tenant:', error);
       setTenantVerification({
         tenantEmail,
         isVerified: false,
@@ -111,27 +90,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       if (!user) throw new Error('No user logged in');
 
-      // Check if tenant exists in remote database
-      const remoteDb = await db.getRemoteDb(tenantEmail);
-      const usersDoc = await remoteDb.get('users').catch(() => null);
-
-      console.log(usersDoc);
+      const hasAccess = await remoteDb.verifyTenantAccess(tenantEmail, userEmail);
       
-      if (!usersDoc) {
-        setTenantVerification({
-          tenantEmail,
-          isVerified: false,
-          error: 'Tenant not found. Please create a new tenant.'
-        });
-        return false;
-      }
-
-      const users = (usersDoc as any).users || [];
-      const userExists = users.includes(userEmail);
-
-      console.log({userExists, users, userEmail});
-
-      if (!userExists) {
+      if (!hasAccess) {
         setTenantVerification({
           tenantEmail,
           isVerified: false,
@@ -147,8 +108,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         isVerified: true
       });
 
-      // Sync databases
-      await db.syncWithRemote(tenantEmail);
+      db = new DatabaseService(tenantEmail);
       return true;
     } catch (error) {
       console.log("Error verifying tenant", error);
@@ -168,11 +128,17 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         throw new Error('Invalid response from server');
       }
 
-      // if the user's path is /login, redirect to /
-      if (location.pathname === '/login') {
-        navigate('/');
-      }
+      // initialize db asynchronously
+      db = new DatabaseService(response.user.email!);
 
+      await db.waitForInitialization().then(() => {
+        console.log('db initialized');
+        // if the user's path is /login, redirect to /
+        if (location.pathname === '/login') {
+          navigate('/');
+        }
+      });
+      
       return response.user;
     } catch (error) {
       console.error('Google login failed:', error);
