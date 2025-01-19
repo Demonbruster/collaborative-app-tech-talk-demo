@@ -68,6 +68,7 @@ export const BoardList = () => {
                        doc.collaborators.includes(user?.email) ? 'shared' : 'public'
           };
 
+          console.log('board', board);
           acc[board.accessType].push(board);
           return acc;
         }, { owned: [], shared: [], public: [] });
