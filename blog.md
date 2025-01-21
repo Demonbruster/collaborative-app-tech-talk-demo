@@ -246,7 +246,7 @@ The source code is available on GitHub [link], and we welcome contributions from
 
 ## Resources
 
-- [GitHub Repository](#)
+- [GitHub Repository](https://github.com/Demonbruster/collaborative-app-tech-talk-demo)
 - [Live Demo](#)
 - [Documentation](#)
 - [Technical Talk Slides](#)
