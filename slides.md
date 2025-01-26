@@ -150,6 +150,20 @@ const resolveConflict = async (doc) => {
 };
 ```
 
+When conflicts occur between multiple users editing the same board, our system determines the winner through a multi-step process:
+
+1. First, we compare timestamps - the most recent edit typically wins
+2. If timestamps are too close (within 100ms), we check user roles:
+   - Owner's changes take precedence
+   - Then collaborators with edit rights
+   - Finally, other participants
+3. For simultaneous edits, we preserve both changes when possible:
+   - Shape additions are merged
+   - Style changes use the most recent
+   - Deletions are prioritized to prevent "zombie" elements
+
+This approach ensures consistent resolution across all clients while preserving user intent.
+
 ---
 
 # UX Challenges & Solutions
